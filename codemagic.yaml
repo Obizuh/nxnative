@@ -37,3 +37,38 @@ workflows:
           ls -la "$CM_BUILD_DIR/nxn-artifacts"
     artifacts:
       - nxn-artifacts/*.ipa
+  rtg-build:
+    name: Rhythm Heaven Groove Build
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      xcode: "26.6"
+      groups:
+        - nxn-assets
+    scripts:
+      - name: Install build dependencies
+        script: |
+          brew install xcodegen zstd spirv-cross p7zip unar
+          brew install --cask dotnet-sdk
+          python3 -m pip install --user lz4 capstone fonttools "backports.zstd; python_version < '3.14'"
+      - name: Fetch Rhythm Heaven Groove game file
+        script: |
+          set -e
+          mkdir -p "$HOME/rtg-game" "$HOME/rtg-keys"
+          curl -fL -o "$HOME/rtg-base.rar" "$NXN_ASSET_BASE/up1/1_809jZcE8_RHYTMHGROV-NSwTcH-%5BBASE%5D-NSP-Ziperto.rar"
+          curl -fL -o "$HOME/rtg-keys/prod.keys" "$NXN_ASSET_BASE/work/keys/prod_hactool.keys"
+          ls -la "$HOME/rtg-base.rar"
+      - name: Extract NSP
+        script: |
+          set -e
+          unar -force-overwrite -output-directory "$HOME/rtg-game" "$HOME/rtg-base.rar" || 7z x -y -o"$HOME/rtg-game" "$HOME/rtg-base.rar"
+          ls -la "$HOME/rtg-game"
+      - name: Build IPA from NSP
+        script: python3 scripts/build_ipa_from_nsp.py "$HOME/rtg-game" -k "$HOME/rtg-keys/prod.keys"
+      - name: Collect artifacts
+        script: |
+          mkdir -p "$CM_BUILD_DIR/rtg-artifacts"
+          find "$HOME" -name "*.ipa" -newer "$HOME/rtg-keys/prod.keys" -exec cp {} "$CM_BUILD_DIR/rtg-artifacts/" \; 2>/dev/null || true
+          ls -la "$CM_BUILD_DIR/rtg-artifacts"
+    artifacts:
+      - rtg-artifacts/*.ipa
