@@ -62,6 +62,7 @@ workflows:
         script: |
           set -e
           unar -force-overwrite -output-directory "$HOME/rtg-game" "$HOME/rtg-base.rar" || 7z x -y -o"$HOME/rtg-game" "$HOME/rtg-base.rar"
+          find "$HOME/rtg-game" -mindepth 2 \( -name "*.nsp" -o -name "*.xci" \) -exec mv -n {} "$HOME/rtg-game/" \; || true
           ls -la "$HOME/rtg-game"
       - name: Build IPA from NSP
         script: python3 scripts/build_ipa_from_nsp.py "$HOME/rtg-game" -k "$HOME/rtg-keys/prod.keys"
