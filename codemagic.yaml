@@ -64,6 +64,18 @@ workflows:
           unar -force-overwrite -output-directory "$HOME/rtg-game" "$HOME/rtg-base.rar" || 7z x -y -o"$HOME/rtg-game" "$HOME/rtg-base.rar"
           find "$HOME/rtg-game" -mindepth 2 \( -name "*.nsp" -o -name "*.xci" \) -exec mv -n {} "$HOME/rtg-game/" \; || true
           ls -la "$HOME/rtg-game"
+      - name: Register shader toolchain
+        script: |
+          set -e
+          if ! xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; then
+            echo "Metal toolchain not found, downloading component..."
+            xcodebuild -downloadComponent MetalToolchain || true
+          fi
+          xcrun -sdk macosx metal --version
+          xcrun -sdk iphoneos metal --version
+          cd "$CM_BUILD_DIR"
+          DM_GAME=0100D9F01D474000 python3 dm/gfx/tools/dmsh_chain.py --update-lock
+          cat dm/gfx/tools/dmsh_chain.lock
       - name: Build IPA from NSP
         script: python3 scripts/build_ipa_from_nsp.py "$HOME/rtg-game" -k "$HOME/rtg-keys/prod.keys"
       - name: Collect artifacts
