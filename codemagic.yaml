@@ -96,6 +96,8 @@ workflows:
           xcrun -sdk iphoneos metal --version
           cd "$CM_BUILD_DIR"
           DM_GAME=0100D9F01D474000 python3 dm/gfx/tools/dmsh_chain.py --update-lock
+          DM_GAME=0100D9F01D474000 python3 dm/gfx/tools/dmsh_chain.py --header
+          grep DMSH_CHAIN dm/games/0100D9F01D474000/dmsh_chain.h || true
           cat dm/gfx/tools/dmsh_chain.lock
       - name: Build IPA from NSP
         script: python3 scripts/build_ipa_from_nsp.py "$HOME/rtg-game" -k "$HOME/rtg-keys/prod.keys"
