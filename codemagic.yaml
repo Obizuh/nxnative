@@ -1,51 +1,39 @@
 workflows:
   nxnative-build:
     name: NXNative Build
-    max_build_duration: 60
+    max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
       xcode: "26.6"
+      groups:
+        - nxn-assets
     scripts:
       - name: Install build dependencies
         script: |
-          brew install xcodegen zstd spirv-cross
+          brew install xcodegen zstd spirv-cross p7zip unar
           brew install --cask dotnet-sdk
-          python3 -m pip install lz4 capstone fonttools "backports.zstd; python_version < '3.14'"
-      - name: Fetch game package
+          python3 -m pip install --user lz4 capstone fonttools "backports.zstd; python_version < '3.14'"
+      - name: Fetch BOTW game files
         script: |
-          # 游戏包下载链接通过 Codemagic 环境变量 NXN_GAME_URL 提供（不要在仓库里硬编码链接）
-          if [ -z "${NXN_GAME_URL:-}" ]; then
-            echo "NXN_GAME_URL is not set. Configure it in Codemagic > Environment variables."
-            exit 1
-          fi
-          mkdir -p "$HOME/nxn-game"
-          curl -L --fail --retry 3 -o "$HOME/nxn-game/package.pkg" "$NXN_GAME_URL"
-          cd "$HOME/nxn-game"
-          if unzip -l package.pkg >/dev/null 2>&1; then
-            unzip -o package.pkg
-            rm package.pkg
-          else
-            mv package.pkg game.nsp
-          fi
+          set -e
+          mkdir -p "$HOME/nxn-rars" "$HOME/nxn-game" "$HOME/nxn-keys"
+          BASE="$NXN_ASSET_BASE/up1/The%20Legend%20of%20Zelda%20BOTW%20%5BNSP%20%2B%20Update%20%2B%20DLC%5D"
+          curl -fL -o "$HOME/nxn-rars/base.rar" "$BASE/1_skerrMnZ_The%20Legend%20of%20Zelda%20Breath%20of%20the%20Wild%20(NSP)(Base%20Game).rar"
+          curl -fL -o "$HOME/nxn-rars/update.rar" "$BASE/1_2oSSgIrT_The%20Legend%20of%20Zelda%20Breath%20of%20the%20Wild%20(NSP)(Update%201.6.0).rar"
+          curl -fL -o "$HOME/nxn-rars/dlc.rar" "$BASE/1_HtQKYwAo_The%20Legend%20of%20Zelda%20Breath%20of%20the%20Wild%20(NSP)(2%20DLCs).rar"
+          curl -fL -o "$HOME/nxn-keys/prod.keys" "$NXN_ASSET_BASE/work/keys/prod_hactool.keys"
+          ls -la "$HOME/nxn-rars"
+      - name: Extract NSPs
+        script: |
+          set -e
+          for f in "$HOME/nxn-rars"/*.rar; do unar -force-overwrite -output-directory "$HOME/nxn-game" "$f" || 7z x -y -o"$HOME/nxn-game" "$f"; done
           ls -la "$HOME/nxn-game"
-      - name: Prepare prod.keys
-        script: |
-          # 解密密钥内容通过 Codemagic 环境变量 NXN_PROD_KEYS 提供（不要提交到仓库）
-          mkdir -p "$HOME/nxn-keys"
-          if [ -n "${NXN_PROD_KEYS:-}" ]; then
-            printf '%s' "$NXN_PROD_KEYS" > "$HOME/nxn-keys/prod.keys"
-            chmod 600 "$HOME/nxn-keys/prod.keys"
-          fi
       - name: Build IPA from NSP
-        script: |
-          if [ ! -f "$HOME/nxn-keys/prod.keys" ]; then
-            echo "prod.keys not found. Configure NXN_PROD_KEYS in Codemagic > Environment variables."
-            exit 1
-          fi
-          python3 scripts/build_ipa_from_nsp.py "$HOME/nxn-game" -k "$HOME/nxn-keys/prod.keys"
+        script: python3 scripts/build_ipa_from_nsp.py "$HOME/nxn-game" -k "$HOME/nxn-keys/prod.keys"
       - name: Collect artifacts
         script: |
           mkdir -p "$CM_BUILD_DIR/nxn-artifacts"
-          cp "$HOME/nxn-game"/*.ipa "$CM_BUILD_DIR/nxn-artifacts/" 2>/dev/null || echo "No IPA produced"
+          find "$HOME" -name "*.ipa" -newer "$HOME/nxn-keys/prod.keys" -exec cp {} "$CM_BUILD_DIR/nxn-artifacts/" \; 2>/dev/null || true
+          ls -la "$CM_BUILD_DIR/nxn-artifacts"
     artifacts:
       - nxn-artifacts/*.ipa
