@@ -66,11 +66,32 @@ workflows:
           ls -la "$HOME/rtg-game"
       - name: Register shader toolchain
         script: |
-          set -e
-          if ! xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; then
-            echo "Metal toolchain not found, downloading component..."
-            xcodebuild -downloadComponent MetalToolchain || true
+          set -x
+          metal_ok() { xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; }
+          if ! metal_ok; then
+            for app in $(ls -d /Applications/Xcode*.app 2>/dev/null | sort -rV); do
+              if DEVELOPER_DIR="$app/Contents/Developer" xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; then
+                echo "Found bundled Metal in $app, switching"
+                sudo xcode-select -s "$app/Contents/Developer" || true
+                break
+              fi
+            done
           fi
+          if ! metal_ok; then
+            xcodebuild -downloadComponent MetalToolchain || true
+            dmg=$(ls /System/Library/AssetsV2/com_apple_MobileAsset_MetalToolchain/*/AssetData/Restore/*.dmg 2>/dev/null | head -1)
+            echo "asset dmg: $dmg"
+            if [ -n "$dmg" ]; then
+              mnt=$(mktemp -d)
+              hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse || true
+              find "$mnt" -maxdepth 3 \( -name "*.xctoolchain" -o -name "*.pkg" \) 2>/dev/null
+              for tc in $(find "$mnt" -maxdepth 3 -name "*.xctoolchain" 2>/dev/null); do sudo cp -R "$tc" /Library/Developer/Toolchains/ || true; done
+              for pkg in $(find "$mnt" -maxdepth 3 -name "*.pkg" 2>/dev/null); do sudo installer -pkg "$pkg" -target / || true; done
+              hdiutil detach "$mnt" || true
+            fi
+          fi
+          ls -d /Applications/Xcode*.app 2>/dev/null
+          xcodebuild -version || true
           xcrun -sdk macosx metal --version
           xcrun -sdk iphoneos metal --version
           cd "$CM_BUILD_DIR"
