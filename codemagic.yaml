@@ -19,7 +19,7 @@ workflows:
           mkdir -p "$HOME/nxn-rars" "$HOME/nxn-game" "$HOME/nxn-keys"
           BASE="$NXN_ASSET_BASE/up1/The%20Legend%20of%20Zelda%20BOTW%20%5BNSP%20%2B%20Update%20%2B%20DLC%5D"
           curl -fL -o "$HOME/nxn-rars/base.rar" "$BASE/1_skerrMnZ_The%20Legend%20of%20Zelda%20Breath%20of%20the%20Wild%20(NSP)(Base%20Game).rar"
-          curl -fL -o "$HOME/nxn-rars/update.rar" "$BASE/1_2oSSgIrT_The%20Legend%20of%20Zelda%20Breath%20of%20the%20Wild%20(NSP)(Update%201.6.0).rar"
+          curl -fL -o "$HOME/nxn-game/E_01007EF00011E800_v1114112.nsp" "$NXN_ASSET_BASE/work/E_01007EF00011E800_v1114112.nsp"
           curl -fL -o "$HOME/nxn-rars/dlc.rar" "$BASE/1_HtQKYwAo_The%20Legend%20of%20Zelda%20Breath%20of%20the%20Wild%20(NSP)(2%20DLCs).rar"
           curl -fL -o "$HOME/nxn-keys/prod.keys" "$NXN_ASSET_BASE/work/keys/prod_hactool.keys"
           ls -la "$HOME/nxn-rars"
@@ -27,7 +27,43 @@ workflows:
         script: |
           set -e
           for f in "$HOME/nxn-rars"/*.rar; do unar -force-overwrite -output-directory "$HOME/nxn-game" "$f" || 7z x -y -o"$HOME/nxn-game" "$f"; done
+          find "$HOME/nxn-game" -mindepth 2 \( -name "*.nsp" -o -name "*.xci" \) -exec mv -n {} "$HOME/nxn-game/" \; || true
           ls -la "$HOME/nxn-game"
+      - name: Register shader toolchain
+        script: |
+          set -x
+          metal_ok() { xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; }
+          if ! metal_ok; then
+            for app in $(ls -d /Applications/Xcode*.app 2>/dev/null | sort -rV); do
+              if DEVELOPER_DIR="$app/Contents/Developer" xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; then
+                echo "Found bundled Metal in $app, switching"
+                sudo xcode-select -s "$app/Contents/Developer" || true
+                break
+              fi
+            done
+          fi
+          if ! metal_ok; then
+            xcodebuild -downloadComponent MetalToolchain || true
+            dmg=$(ls /System/Library/AssetsV2/com_apple_MobileAsset_MetalToolchain/*/AssetData/Restore/*.dmg 2>/dev/null | head -1)
+            echo "asset dmg: $dmg"
+            if [ -n "$dmg" ]; then
+              mnt=$(mktemp -d)
+              hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse || true
+              find "$mnt" -maxdepth 3 \( -name "*.xctoolchain" -o -name "*.pkg" \) 2>/dev/null
+              for tc in $(find "$mnt" -maxdepth 3 -name "*.xctoolchain" 2>/dev/null); do sudo cp -R "$tc" /Library/Developer/Toolchains/ || true; done
+              for pkg in $(find "$mnt" -maxdepth 3 -name "*.pkg" 2>/dev/null); do sudo installer -pkg "$pkg" -target / || true; done
+              hdiutil detach "$mnt" || true
+            fi
+          fi
+          ls -d /Applications/Xcode*.app 2>/dev/null
+          xcodebuild -version || true
+          xcrun -sdk macosx metal --version
+          xcrun -sdk iphoneos metal --version
+          cd "$CM_BUILD_DIR"
+          DM_GAME=01007EF00011E000 python3 dm/gfx/tools/dmsh_chain.py --update-lock
+          DM_GAME=01007EF00011E000 python3 dm/gfx/tools/dmsh_chain.py --header
+          grep DMSH_CHAIN dm/games/01007EF00011E000/dmsh_chain.h || true
+          cat dm/gfx/tools/dmsh_chain.lock
       - name: Build IPA from NSP
         script: python3 scripts/build_ipa_from_nsp.py "$HOME/nxn-game" -k "$HOME/nxn-keys/prod.keys"
       - name: Collect artifacts
