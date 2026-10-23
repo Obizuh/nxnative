@@ -215,3 +215,74 @@ workflows:
           ls -la "$CM_BUILD_DIR/totk-artifacts"
     artifacts:
       - totk-artifacts/*.ipa
+  lm3-build:
+    name: Luigi's Mansion 3 Build
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      xcode: "26.6"
+      groups:
+        - nxn-assets
+    scripts:
+      - name: Install build dependencies
+        script: |
+          brew install xcodegen zstd spirv-cross p7zip unar
+          brew install --cask dotnet-sdk
+          python3 -m pip install --user lz4 capstone fonttools "backports.zstd; python_version < '3.14'"
+      - name: Fetch LM3 game files
+        script: |
+          set -e
+          mkdir -p "$HOME/lm3-game" "$HOME/lm3-keys"
+          curl -fL -o "$HOME/lm3-game/base.nsp" "http://3.221.158.118:18099/gx-4c1d9a/base.nsp"
+          curl -fL -o "$HOME/lm3-game/update.nsp" "http://3.221.158.118:18099/gx-4c1d9a/update.nsp"
+          curl -fL -o "$HOME/lm3-keys/prod.keys" "$NXN_ASSET_BASE/work/keys/prod_hactool.keys"
+          ls -la "$HOME/lm3-game"
+      - name: Prepare NSP folder
+        script: |
+          set -e
+          find "$HOME/lm3-game" -mindepth 2 \( -name "*.nsp" -o -name "*.xci" \) -exec mv -n {} "$HOME/lm3-game/" \; || true
+          ls -la "$HOME/lm3-game"
+      - name: Register shader toolchain
+        script: |
+          set -x
+          metal_ok() { xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; }
+          if ! metal_ok; then
+            for app in $(ls -d /Applications/Xcode*.app 2>/dev/null | sort -rV); do
+              if DEVELOPER_DIR="$app/Contents/Developer" xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; then
+                echo "Found bundled Metal in $app, switching"
+                sudo xcode-select -s "$app/Contents/Developer" || true
+                break
+              fi
+            done
+          fi
+          if ! metal_ok; then
+            xcodebuild -downloadComponent MetalToolchain || true
+            dmg=$(ls /System/Library/AssetsV2/com_apple_MobileAsset_MetalToolchain/*/AssetData/Restore/*.dmg 2>/dev/null | head -1)
+            echo "asset dmg: $dmg"
+            if [ -n "$dmg" ]; then
+              mnt=$(mktemp -d)
+              hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse || true
+              find "$mnt" -maxdepth 3 \( -name "*.xctoolchain" -o -name "*.pkg" \) 2>/dev/null
+              for tc in $(find "$mnt" -maxdepth 3 -name "*.xctoolchain" 2>/dev/null); do sudo cp -R "$tc" /Library/Developer/Toolchains/ || true; done
+              for pkg in $(find "$mnt" -maxdepth 3 -name "*.pkg" 2>/dev/null); do sudo installer -pkg "$pkg" -target / || true; done
+              hdiutil detach "$mnt" || true
+            fi
+          fi
+          ls -d /Applications/Xcode*.app 2>/dev/null
+          xcodebuild -version || true
+          xcrun -sdk macosx metal --version
+          xcrun -sdk iphoneos metal --version
+          cd "$CM_BUILD_DIR"
+          DM_GAME=0100DCA0064A6000 python3 dm/gfx/tools/dmsh_chain.py --update-lock
+          DM_GAME=0100DCA0064A6000 python3 dm/gfx/tools/dmsh_chain.py --header
+          grep DMSH_CHAIN dm/games/0100DCA0064A6000/dmsh_chain.h || true
+          cat dm/gfx/tools/dmsh_chain.lock
+      - name: Build IPA from NSP
+        script: python3 scripts/build_ipa_from_nsp.py "$HOME/lm3-game" -k "$HOME/lm3-keys/prod.keys"
+      - name: Collect artifacts
+        script: |
+          mkdir -p "$CM_BUILD_DIR/lm3-artifacts"
+          find "$HOME" -name "*.ipa" -newer "$HOME/lm3-keys/prod.keys" -exec cp {} "$CM_BUILD_DIR/lm3-artifacts/" \; 2>/dev/null || true
+          ls -la "$CM_BUILD_DIR/lm3-artifacts"
+    artifacts:
+      - lm3-artifacts/*.ipa
