@@ -255,9 +255,20 @@ workflows:
                   if not v:
                       v = re.fullmatch(r'float (\w+) \[\[clip_distance\]\] \[(\d+)\];', line)
           '''
-          assert src.count(old) == 1, 'clip_distance anchor not found exactly once'
-          open(path, 'w').write(src.replace(old, new))
-          print('dmsh_geometry patched for LM3 gl_ClipDistance word order')
+          assert src.count(old) == 1, 'anchor1 count != 1: %d' % src.count(old)
+          src = src.replace(old, new)
+          old2 = r'''        raise ValueError('geometry capture: unknown output ' + line)
+          '''
+          new2 = r'''        v = re.fullmatch(r'float (\w+) \[\[user\(clip(\d+)\)\]\];', line)
+                  if v and int(v[2]) < 8:
+                      stores.append(f'dm_p[{5 + int(v[2])}] = as_type<uint>(out.{v[1]});')
+                      continue
+                  raise ValueError('geometry capture: unknown output ' + line)
+          '''
+          assert src.count(old2) == 1, 'anchor2 count != 1: %d' % src.count(old2)
+          src = src.replace(old2, new2)
+          open(path, 'w').write(src)
+          print('patched ok (2 anchors)')
           PYEOF
       - name: Register shader toolchain
         script: |
