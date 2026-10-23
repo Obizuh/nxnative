@@ -277,6 +277,23 @@ workflows:
           DM_GAME=0100DCA0064A6000 python3 dm/gfx/tools/dmsh_chain.py --header
           grep DMSH_CHAIN dm/games/0100DCA0064A6000/dmsh_chain.h || true
           cat dm/gfx/tools/dmsh_chain.lock
+      - name: Patch dmsh_geometry clip_distance word order
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR"
+          python3 - <<'PYEOF'
+          path = 'dm/gfx/tools/dmsh_geometry.py'
+          src = open(path).read()
+          old = r'''        v = re.fullmatch(r'float (\w+)\[(\d+)\] \[\[clip_distance\]\];', line)
+          '''
+          new = r'''        v = re.fullmatch(r'float (\w+)\[(\d+)\] \[\[clip_distance\]\];', line)
+                  if not v:
+                      v = re.fullmatch(r'float (\w+) \[\[clip_distance\]\] \[(\d+)\];', line)
+          '''
+          assert src.count(old) == 1, 'clip_distance anchor not found exactly once'
+          open(path, 'w').write(src.replace(old, new))
+          print('dmsh_geometry patched for LM3 gl_ClipDistance word order')
+          PYEOF
       - name: Build IPA from NSP
         script: python3 scripts/build_ipa_from_nsp.py "$HOME/lm3-game" -k "$HOME/lm3-keys/prod.keys"
       - name: Collect artifacts
