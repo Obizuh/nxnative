@@ -146,7 +146,7 @@ workflows:
       - rtg-artifacts/*.ipa
   totk-build:
     name: Tears of the Kingdom Build
-    max_build_duration: 180
+    max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
       xcode: "26.6"
@@ -316,7 +316,7 @@ workflows:
       - lm3-artifacts/*.ipa
   wonder-build:
     name: Super Mario Bros. Wonder Build
-    max_build_duration: 180
+    max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
       xcode: "26.6"
