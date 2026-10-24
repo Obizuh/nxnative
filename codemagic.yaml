@@ -332,7 +332,7 @@ workflows:
         script: |
           set -e
           mkdir -p "$HOME/wonder-game" "$HOME/wonder-keys"
-          curl -fL -o "$HOME/wonder-game/base.xci" "$NXN_ASSET_BASE/work/wonder-base.xci"
+          curl -fL -o "$HOME/wonder-game/wonder-base [010015100B514000].xci" "$NXN_ASSET_BASE/work/wonder-base.xci"
           curl -fL -o "$HOME/wonder-keys/prod.keys" "$NXN_ASSET_BASE/work/keys/prod_hactool.keys"
           ls -la "$HOME/wonder-game"
       - name: Prepare NSP folder
