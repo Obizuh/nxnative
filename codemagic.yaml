@@ -314,3 +314,101 @@ workflows:
           ls -la "$CM_BUILD_DIR/lm3-artifacts"
     artifacts:
       - lm3-artifacts/*.ipa
+  wonder-build:
+    name: Super Mario Bros. Wonder Build
+    max_build_duration: 180
+    instance_type: mac_mini_m2
+    environment:
+      xcode: "26.6"
+      groups:
+        - nxn-assets
+    scripts:
+      - name: Install build dependencies
+        script: |
+          brew install xcodegen zstd spirv-cross p7zip unar
+          brew install --cask dotnet-sdk
+          python3 -m pip install --user lz4 capstone fonttools "backports.zstd; python_version < '3.14'"
+      - name: Fetch Wonder game files
+        script: |
+          set -e
+          mkdir -p "$HOME/wonder-game" "$HOME/wonder-keys"
+          curl -fL -o "$HOME/wonder-game/base.xci" "$NXN_ASSET_BASE/work/wonder-base.xci"
+          curl -fL -o "$HOME/wonder-keys/prod.keys" "$NXN_ASSET_BASE/work/keys/prod_hactool.keys"
+          ls -la "$HOME/wonder-game"
+      - name: Prepare NSP folder
+        script: |
+          set -e
+          find "$HOME/wonder-game" -mindepth 2 \( -name "*.nsp" -o -name "*.xci" \) -exec mv -n {} "$HOME/wonder-game/" \; || true
+          ls -la "$HOME/wonder-game"
+      - name: Patch dmsh_geometry clip_distance word order
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR"
+          python3 - <<'PYEOF'
+          path = 'dm/gfx/tools/dmsh_geometry.py'
+          src = open(path).read()
+          old = r'''        v = re.fullmatch(r'float (\w+)\[(\d+)\] \[\[clip_distance\]\];', line)
+          '''
+          new = r'''        v = re.fullmatch(r'float (\w+)\[(\d+)\] \[\[clip_distance\]\];', line)
+                  if not v:
+                      v = re.fullmatch(r'float (\w+) \[\[clip_distance\]\] \[(\d+)\];', line)
+          '''
+          assert src.count(old) == 1, 'anchor1 count != 1: %d' % src.count(old)
+          src = src.replace(old, new)
+          old2 = r'''        raise ValueError('geometry capture: unknown output ' + line)
+          '''
+          new2 = r'''        v = re.fullmatch(r'float (\w+) \[\[user\(clip(\d+)\)\]\];', line)
+                  if v and int(v[2]) < 8:
+                      stores.append(f'dm_p[{5 + int(v[2])}] = as_type<uint>(out.{v[1]});')
+                      continue
+                  raise ValueError('geometry capture: unknown output ' + line)
+          '''
+          assert src.count(old2) == 1, 'anchor2 count != 1: %d' % src.count(old2)
+          src = src.replace(old2, new2)
+          open(path, 'w').write(src)
+          print('patched ok (2 anchors)')
+          PYEOF
+      - name: Register shader toolchain
+        script: |
+          set -x
+          metal_ok() { xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; }
+          if ! metal_ok; then
+            for app in $(ls -d /Applications/Xcode*.app 2>/dev/null | sort -rV); do
+              if DEVELOPER_DIR="$app/Contents/Developer" xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; then
+                echo "Found bundled Metal in $app, switching"
+                sudo xcode-select -s "$app/Contents/Developer" || true
+                break
+              fi
+            done
+          fi
+          if ! metal_ok; then
+            xcodebuild -downloadComponent MetalToolchain || true
+            dmg=$(ls /System/Library/AssetsV2/com_apple_MobileAsset_MetalToolchain/*/AssetData/Restore/*.dmg 2>/dev/null | head -1)
+            echo "asset dmg: $dmg"
+            if [ -n "$dmg" ]; then
+              mnt=$(mktemp -d)
+              hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse || true
+              find "$mnt" -maxdepth 3 \( -name "*.xctoolchain" -o -name "*.pkg" \) 2>/dev/null
+              for tc in $(find "$mnt" -maxdepth 3 -name "*.xctoolchain" 2>/dev/null); do sudo cp -R "$tc" /Library/Developer/Toolchains/ || true; done
+              for pkg in $(find "$mnt" -maxdepth 3 -name "*.pkg" 2>/dev/null); do sudo installer -pkg "$pkg" -target / || true; done
+              hdiutil detach "$mnt" || true
+            fi
+          fi
+          ls -d /Applications/Xcode*.app 2>/dev/null
+          xcodebuild -version || true
+          xcrun -sdk macosx metal --version
+          xcrun -sdk iphoneos metal --version
+          cd "$CM_BUILD_DIR"
+          DM_GAME=010015100B514000 python3 dm/gfx/tools/dmsh_chain.py --update-lock
+          DM_GAME=010015100B514000 python3 dm/gfx/tools/dmsh_chain.py --header
+          grep DMSH_CHAIN dm/games/010015100B514000/dmsh_chain.h || true
+          cat dm/gfx/tools/dmsh_chain.lock
+      - name: Build IPA from NSP
+        script: python3 scripts/build_ipa_from_nsp.py "$HOME/wonder-game" -k "$HOME/wonder-keys/prod.keys"
+      - name: Collect artifacts
+        script: |
+          mkdir -p "$CM_BUILD_DIR/wonder-artifacts"
+          find "$HOME" -name "*.ipa" -newer "$HOME/wonder-keys/prod.keys" -exec cp {} "$CM_BUILD_DIR/wonder-artifacts/" \; 2>/dev/null || true
+          ls -la "$CM_BUILD_DIR/wonder-artifacts"
+    artifacts:
+      - wonder-artifacts/*.ipa
